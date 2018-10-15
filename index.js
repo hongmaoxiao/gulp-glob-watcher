@@ -35,7 +35,7 @@ module.exports = function (glob, opts, cb) {
   };
 
   out.add = function () {
-    return watcher.add.call(watcher, arguments);
+    return watcher.add.apply(watcher, arguments);
   };
 
   out.remove = function () {
