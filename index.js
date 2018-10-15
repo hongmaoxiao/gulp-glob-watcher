@@ -34,8 +34,6 @@ module.exports = function (glob, opts, cb) {
     return watcher.close();
   };
 
-  out.files = watcher.watched;
-
   out.add = function () {
     return watcher.add.apply(watcher, arguments);
   };
