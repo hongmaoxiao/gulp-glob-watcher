@@ -1,53 +1,68 @@
-var gaze = require('gaze');
-var EventEmitter = require('events').EventEmitter;
+'use strict';
 
-function onWatch(out, cb) {
-  return function(err, rwatcher) {
-    if (err) {
-      out.emit('error', err);
-    }
-    rwatcher.on('all', function (evt, path, old) {
-      var outEvt = {type: evt, path: path};
-      if (old) {
-        outEvt.old = old;
-      }
-      out.emit('change', outEvt);
-      if (cb) {
-        cb();
-      }
-    });
-  }
+var chokidar = require('chokidar');
+var debounce = require('lodash.debounce');
+var asyncDone = require('async-done');
+var assignWith = require('lodash.assignwith');
+
+function assignNullish(objValue, srcValue) {
+  return (srcValue == null ? objValue : srcValue);
 }
 
-module.exports = function (glob, opts, cb) {
-  var out = new EventEmitter();
+var defaults = {
+  ignoreInitial: true,
+  delay: 200,
+  queue: true,
+};
 
-  if (typeof opts === 'function') {
-    cb = opts;
-    opts = {};
+function watch(glob, options, cb) {
+  if (typeof options === 'function') {
+    cb = options;
+    options = {};
   }
 
+  var opt = assignWith({}, defaults, options, assignNullish);
 
-  var watcher = gaze(glob, opts, onWatch(out, cb));
+  var queued = false;
+  var running = false;
 
-  watcher.on('end', out.emit.bind(out, 'end'));
-  watcher.on('error', out.emit.bind(out, 'error'));
-  watcher.on('ready', out.emit.bind(out, 'ready'));
-  watcher.on('nomatch', out.emit.bind(out, 'nomatch'));
+  var watcher = chokidar.watch(glob, opt);
 
-  out.end = function () {
-    return watcher.close();
-  };
+  function runComplete(err) {
+    running = false;
 
-  out.add = function (glob, cb) {
-    return watcher.add(glob, onWatch(out, cb));
-  };
+    if (err) {
+      watcher.emit('error', err);
+    }
 
-  out.remove = function (glob) {
-    return watcher.remove(glob);
-  };
+    // If we have a run queued, start onChange again
+    if (queued) {
+      queued = false;
+      onChange();
+    }
+  }
 
-  out._watcher = watcher;
+  function onChange() {
+    if (running) {
+      if (opt.queue) {
+        queued = true;
+      }
+      return;
+    }
 
-  return out;
-};
+    running = true;
+    asyncDone(cb, runComplete);
+  }
+
+  if (typeof cb === 'function') {
+    var fn = debounce(onChange, opt.delay, opt);
+    watcher
+      .on('change', fn)
+      .on('unlink', fn)
+      .on('add', fn);
+  }
+
+  return watcher;
+}
+
+module.exports = watch;
